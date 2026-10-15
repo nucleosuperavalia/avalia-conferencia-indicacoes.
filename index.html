@@ -141,7 +141,7 @@ function supportList(target,rows,label){target.replaceChildren();if(!rows.length
 function renderSupport(){supportList(el('sx-readers'),current().l,'Justificativa informada');supportList(el('sx-enlarged'),current().a,'Tipo de prova solicitado');}
 function validateAnswers(){const field=Array.from(el('sx-just-form').querySelectorAll('textarea')).find(t=>!t.value.trim());if(field){field.setCustomValidity('Preencha a justificativa deste estudante.');field.reportValidity();field.setCustomValidity('');error('Preencha todas as justificativas obrigatórias para continuar.');return false;}return true;}
 // COLE AQUI A URL DA IMPLANTAÇÃO DO APPS SCRIPT, TERMINADA EM /exec.
-const APPS_SCRIPT_URL = 'hhttps://script.google.com/macros/s/AKfycbwFd2jKECPdWjtxJK1u1UNR7DnAtAOXnAQU9d-8fTT6osRyFxaD0EDiisbZHvWuh8oUlg/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyRr3Q-V7e_o--8Q6pxCuJwCQA0OP1IVefK9b29jDINK2dTjkKPggrpGHJoaJxBFtXnoA/exec';
 const EXPECTED_SPREADSHEET_ID = '1g6LvMlofGPgBhgdXvZKAos8UAaez0M81QxzIjfX3KE0';
 const EXPECTED_SERVER_VERSION = '2026-10-15.5';
 let bridgePromise = null;
