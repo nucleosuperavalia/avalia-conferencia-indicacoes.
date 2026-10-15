@@ -142,6 +142,8 @@ function renderSupport(){supportList(el('sx-readers'),current().l,'Justificativa
 function validateAnswers(){const field=Array.from(el('sx-just-form').querySelectorAll('textarea')).find(t=>!t.value.trim());if(field){field.setCustomValidity('Preencha a justificativa deste estudante.');field.reportValidity();field.setCustomValidity('');error('Preencha todas as justificativas obrigatórias para continuar.');return false;}return true;}
 // COLE AQUI A URL DA IMPLANTAÇÃO DO APPS SCRIPT, TERMINADA EM /exec.
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyRr3Q-V7e_o--8Q6pxCuJwCQA0OP1IVefK9b29jDINK2dTjkKPggrpGHJoaJxBFtXnoA/exec';
+const EXPECTED_SPREADSHEET_ID = '1g6LvMlofGPgBhgdXvZKAos8UAaez0M81QxzIjfX3KE0';
+const EXPECTED_SERVER_VERSION = '2026-10-15.5';
 let bridgePromise = null;
 let bridgePeer = null;
 let bridgeOrigin = '';
@@ -220,7 +222,7 @@ el('sx-finish').addEventListener('click',async()=>{
   const payload={id_envio:state.submissionId,versao_base:state.baseVersion,unidade:state.code,nome:state.name,email:state.email,justificativas:requiredRows().map(({r,i})=>({id_indicacao:r[5],justificativa:state.answers.get(answerKey(r,i))||''}))};
   try{
     const result=await rpc('salvarConferencia',payload);
-    if(!result||!result.ok)throw new Error('O servidor não confirmou o registro. Tente novamente.');
+    if(!result||!result.ok||result.gravacao_confirmada!==true||result.planilha_id!==EXPECTED_SPREADSHEET_ID||result.versao!==EXPECTED_SERVER_VERSION)throw new Error('O servidor não confirmou a gravação na planilha e versão esperadas. Verifique a implantação antes de reenviar.');
     const receipt=el('sx-receipt');receipt.replaceChildren(create('p','sx-muted',current().s+' · '+state.name),create('p','', 'Protocolo: '+result.protocolo));
     page(3);
   }catch(err){error((err.message||'Não foi possível confirmar o envio.')+' As informações continuam nesta página. Confira a conexão e tente novamente.');}
@@ -228,6 +230,11 @@ el('sx-finish').addEventListener('click',async()=>{
 });
 el('sx-reopen').addEventListener('click',()=>{state.answers.clear();state.code='';state.name='';state.email='';state.submissionId=null;state.baseVersion='';state.furthest=0;units.clear();el('sx-name').value='';el('sx-email').value='';schoolSelect.value='';page(0);});
 async function init(){page(0);try{
+  let connection;
+  try{connection=await rpc('verificarConexao');}catch(e){throw new Error('Não foi possível validar o servidor atualizado. Publique o novo Code.gs e confira APPS_SCRIPT_URL. Detalhe: '+(e.message||e));}
+  if(connection?.versao!==EXPECTED_SERVER_VERSION)throw new Error('O site está conectado a uma versão antiga do servidor. Atualize a implantação e a URL /exec.');
+  if(connection.planilha_id!==EXPECTED_SPREADSHEET_ID)throw new Error('O servidor está conectado a outra planilha. Confira SPREADSHEET_ID no Apps Script e publique a nova versão.');
+  if(!connection.aba_encontrada)throw new Error('A aba Respostas não foi encontrada na planilha em uso. Execute configurar no Apps Script.');
   const schools=await rpc('listarEscolas');
   if(!Array.isArray(schools)||!schools.length)throw new Error('Não há unidades cadastradas. Confira a configuração da planilha.');
   schoolSelect.replaceChildren();const first=create('option','','Selecione sua escola');first.value='';schoolSelect.append(first);
