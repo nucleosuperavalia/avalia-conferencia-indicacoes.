@@ -101,7 +101,8 @@
 <section class="sx-panel" id="sx-page1" aria-labelledby="sx-nonparticipation" hidden>
 <div class="sx-panel-head"><h2 id="sx-nonparticipation">Indicados para não realização</h2><p>Confira os estudantes indicados pela escola. Para os que não estão no mapeamento, preencha uma justificativa individual.</p></div>
 <div id="sx-progress" class="sx-alert" aria-live="polite"></div>
-<form id="sx-just-form"><div id="sx-needed"></div><details id="sx-remaining"><summary>Demais estudantes indicados</summary><div id="sx-others"></div></details>
+<form id="sx-just-form"><p id="sx-restored" class="sx-alert" role="status" hidden></p>
+<div id="sx-needed"></div><details id="sx-remaining"><summary>Demais estudantes indicados</summary><div id="sx-others"></div></details>
 <div class="sx-actions"><button type="button" class="sx-btn" data-back="0">← Voltar</button><button type="submit" class="sx-btn sx-btn-primary">Conferir ledor e ampliada →</button></div></form>
 </section>
 <section class="sx-panel" id="sx-page2" aria-labelledby="sx-support" hidden>
@@ -120,7 +121,7 @@ const root=document.getElementById('sesi-indicacoes-app');
 const el=id=>root.querySelector('#'+id);
 const DATA=[];
 const schoolSelect=el('sx-school');
-const state={step:0,furthest:0,code:'',name:'',email:'',answers:new Map(),busy:false,submissionId:null};
+const state={step:0,furthest:0,code:'',name:'',email:'',answers:new Map(),busy:false,submissionId:null,baseVersion:''};
 const units=new Map(DATA.map(s=>[String(s.c),s]));
 const create=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=String(text);return e;};
 const current=()=>units.get(state.code);
@@ -198,6 +199,12 @@ el('sx-identity-form').addEventListener('submit',async e=>{
     const roster=await rpc('carregarUnidade',{unidade:code});
     if(!roster||String(roster.c)!==code)throw new Error('Não foi possível carregar a unidade selecionada.');
     units.set(code,roster);state.code=code;state.name=name;state.email=email;state.submissionId=newId();state.furthest=1;
+    state.answers.clear();
+    state.baseVersion=roster.preenchimento?.id_envio||'';
+    for(const saved of roster.preenchimento?.justificativas||[])state.answers.set(code+':'+saved.id_indicacao,saved.justificativa);
+    const restored=el('sx-restored');
+    restored.hidden=!roster.preenchimento;
+    restored.textContent=roster.preenchimento?'O último preenchimento salvo desta escola foi recuperado. Confira as justificativas e, se necessário, atualize-as antes de concluir.':'';
     renderNonparticipation();renderSupport();page(1);
   }catch(err){error(err.message||'Falha ao carregar os estudantes. Tente novamente.');}
   finally{setBusy(false);}
@@ -210,7 +217,7 @@ el('sx-finish').addEventListener('click',async()=>{
   if(!state.name||!state.email||!el('sx-email').checkValidity()){page(0);error('Preencha nome e e-mail do responsável antes de concluir.');return;}
   if(!validateAnswers()){page(1);error('Preencha todas as justificativas obrigatórias para concluir.');return;}
   clearError();setBusy(true);
-  const payload={id_envio:state.submissionId,unidade:state.code,nome:state.name,email:state.email,justificativas:requiredRows().map(({r,i})=>({id_indicacao:r[5],justificativa:state.answers.get(answerKey(r,i))||''}))};
+  const payload={id_envio:state.submissionId,versao_base:state.baseVersion,unidade:state.code,nome:state.name,email:state.email,justificativas:requiredRows().map(({r,i})=>({id_indicacao:r[5],justificativa:state.answers.get(answerKey(r,i))||''}))};
   try{
     const result=await rpc('salvarConferencia',payload);
     if(!result||!result.ok)throw new Error('O servidor não confirmou o registro. Tente novamente.');
@@ -219,7 +226,7 @@ el('sx-finish').addEventListener('click',async()=>{
   }catch(err){error((err.message||'Não foi possível confirmar o envio.')+' As informações continuam nesta página. Confira a conexão e tente novamente.');}
   finally{setBusy(false);}
 });
-el('sx-reopen').addEventListener('click',()=>{state.answers.clear();state.code='';state.name='';state.email='';state.submissionId=null;state.furthest=0;units.clear();el('sx-name').value='';el('sx-email').value='';schoolSelect.value='';page(0);});
+el('sx-reopen').addEventListener('click',()=>{state.answers.clear();state.code='';state.name='';state.email='';state.submissionId=null;state.baseVersion='';state.furthest=0;units.clear();el('sx-name').value='';el('sx-email').value='';schoolSelect.value='';page(0);});
 async function init(){page(0);try{
   const schools=await rpc('listarEscolas');
   if(!Array.isArray(schools)||!schools.length)throw new Error('Não há unidades cadastradas. Confira a configuração da planilha.');
