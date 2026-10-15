@@ -94,7 +94,6 @@
 <div class="sx-panel-head"><h2 id="sx-identification">Unidade e responsável</h2><p>Informe os dados de quem fará a conferência das indicações.</p></div>
 <form id="sx-identity-form">
 <div class="sx-field"><label for="sx-school">Unidade escolar <span class="sx-required">*</span></label><select id="sx-school" required disabled><option value="">Carregando unidades...</option></select></div>
-<div class="sx-field" style="margin-top:20px"><label for="sx-access">Código de acesso da unidade <span class="sx-required">*</span></label><input id="sx-access" type="password" placeholder="Código recebido pela unidade" autocomplete="off" minlength="16" maxlength="100" required></div>
 <div class="sx-two"><div class="sx-field"><label for="sx-name">Nome do responsável <span class="sx-required">*</span></label><input id="sx-name" type="text" placeholder="Seu nome completo" autocomplete="name" maxlength="150" required></div><div class="sx-field"><label for="sx-email">E-mail do responsável <span class="sx-required">*</span></label><input id="sx-email" type="email" placeholder="seu.email@sesisp.org.br" autocomplete="email" maxlength="200" required></div></div>
 <p class="sx-note">Na próxima etapa, os campos de justificativa aparecerão para os estudantes indicados para não realização das avaliações que não estão registrados na matrícula como pertencentes do mapeamento de saúde e inclusão.</p>
 <div class="sx-actions"><span class="sx-small">Campos com * são obrigatórios.</span><button class="sx-btn sx-btn-primary" id="sx-load" type="submit" disabled>Ver indicações →</button></div>
@@ -121,7 +120,7 @@ const root=document.getElementById('sesi-indicacoes-app');
 const el=id=>root.querySelector('#'+id);
 const DATA=[];
 const schoolSelect=el('sx-school');
-const state={step:0,furthest:0,code:'',name:'',email:'',token:'',answers:new Map(),busy:false,submissionId:null};
+const state={step:0,furthest:0,code:'',name:'',email:'',answers:new Map(),busy:false,submissionId:null};
 const units=new Map(DATA.map(s=>[String(s.c),s]));
 const create=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=String(text);return e;};
 const current=()=>units.get(state.code);
@@ -140,25 +139,65 @@ function renderNonparticipation(){const s=current();const need=el('sx-needed'),o
 function supportList(target,rows,label){target.replaceChildren();if(!rows.length){target.append(create('p','sx-empty','Nenhum estudante indicado nesta modalidade.'));return;}for(const r of rows){const {a,head}=person(r);if(r[5])head.append(create('span','sx-badge','Conferir nome ou matrícula'));source(a,label,r[4]);target.append(a);}}
 function renderSupport(){supportList(el('sx-readers'),current().l,'Justificativa informada');supportList(el('sx-enlarged'),current().a,'Tipo de prova solicitado');}
 function validateAnswers(){const field=Array.from(el('sx-just-form').querySelectorAll('textarea')).find(t=>!t.value.trim());if(field){field.setCustomValidity('Preencha a justificativa deste estudante.');field.reportValidity();field.setCustomValidity('');error('Preencha todas as justificativas obrigatórias para continuar.');return false;}return true;}
-function rpc(method,payload){return new Promise((resolve,reject)=>{
-  if(!window.google||!window.google.script||!window.google.script.run){reject(new Error('Abra o endereço do aplicativo publicado no Google Apps Script. Este arquivo não funciona sozinho nem diretamente no GitHub Pages.'));return;}
-  const call=window.google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
-  if(method==='listarEscolas')call.listarEscolas();
-  else if(method==='carregarUnidade')call.carregarUnidade(payload);
-  else if(method==='salvarConferencia')call.salvarConferencia(payload);
-  else reject(new Error('Operação inválida.'));
-});}
+// COLE AQUI A URL DA IMPLANTAÇÃO DO APPS SCRIPT, TERMINADA EM /exec.
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyRr3Q-V7e_o--8Q6pxCuJwCQA0OP1IVefK9b29jDINK2dTjkKPggrpGHJoaJxBFtXnoA/exec';
+let bridgePromise = null;
+let bridgePeer = null;
+let bridgeOrigin = '';
+let bridgeChannel = '';
+let bridgeFrame = null;
+const pendingRpc = new Map();
+function connectBridge(){
+  if(bridgePromise)return bridgePromise;
+  bridgePromise=new Promise((resolve,reject)=>{
+    if(!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(APPS_SCRIPT_URL.trim())){
+      reject(new Error('Configure APPS_SCRIPT_URL no index.html com a URL /exec do Apps Script.'));return;
+    }
+    if(!/^https?:$/.test(window.location.protocol)){
+      reject(new Error('Abra o site publicado no GitHub Pages para conectar à planilha.'));return;
+    }
+    bridgeChannel=newId();
+    const timer=setTimeout(()=>reject(new Error('Não foi possível conectar ao Apps Script. Confira a URL /exec e implante com acesso para Qualquer pessoa.')),45000);
+    window.addEventListener('message',event=>{
+      const m=event.data;
+      if(!m||m.avalia!==true||m.canal!==bridgeChannel)return;
+      if(m.tipo==='pronto'&&!bridgePeer){
+        let host='';try{host=new URL(event.origin).hostname;}catch{return;}
+        if(!/(^|\.)googleusercontent\.com$/.test(host))return;
+        bridgePeer=event.source;bridgeOrigin=event.origin;clearTimeout(timer);resolve();return;
+      }
+      if(event.source!==bridgePeer||event.origin!==bridgeOrigin||m.tipo!=='resposta')return;
+      const task=pendingRpc.get(m.id);if(!task)return;
+      clearTimeout(task.timer);pendingRpc.delete(m.id);
+      if(m.ok)task.resolve(m.data);else task.reject(new Error(m.erro||'Falha na comunicação com a planilha.'));
+    });
+    bridgeFrame=document.createElement('iframe');
+    bridgeFrame.hidden=true;bridgeFrame.title='Conexão com a planilha';
+    bridgeFrame.src=APPS_SCRIPT_URL.trim()+'?origem='+encodeURIComponent(window.location.origin)+'&canal='+encodeURIComponent(bridgeChannel);
+    document.body.append(bridgeFrame);
+  });
+  return bridgePromise;
+}
+async function rpc(method,payload){
+  await connectBridge();
+  return new Promise((resolve,reject)=>{
+    const id=newId();
+    const timer=setTimeout(()=>{pendingRpc.delete(id);reject(new Error('O servidor demorou a responder. Tente novamente; o mesmo protocolo evita duplicação do envio.'));},60000);
+    pendingRpc.set(id,{resolve,reject,timer});
+    bridgePeer.postMessage({avalia:true,canal:bridgeChannel,tipo:'requisicao',id,metodo:method,dados:payload||{}},bridgeOrigin);
+  });
+}
 function setBusy(busy,label){state.busy=busy;el('sx-load').disabled=busy;el('sx-finish').disabled=busy;el('sx-load').textContent=busy&&state.step===0?'Carregando indicações…':'Ver indicações →';el('sx-finish').textContent=busy&&state.step===2?'Registrando…':'Concluir conferência';root.querySelectorAll('[data-step]').forEach(b=>b.disabled=Number(b.dataset.step)>state.furthest||busy||state.step===3);root.querySelectorAll('[data-back]').forEach(b=>b.disabled=busy);}
 function newId(){if(window.crypto&&window.crypto.randomUUID)return window.crypto.randomUUID();return 'envio_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2)+'_'+Math.random().toString(36).slice(2);}
 el('sx-identity-form').addEventListener('submit',async e=>{
   e.preventDefault();if(state.busy)return;clearError();
-  const name=el('sx-name').value.trim(),email=el('sx-email').value.trim(),code=schoolSelect.value,token=el('sx-access').value.trim();
+  const name=el('sx-name').value.trim(),email=el('sx-email').value.trim(),code=schoolSelect.value;
   if(!name){error('Informe o nome do responsável.');el('sx-name').focus();return;}
   setBusy(true);
   try{
-    const roster=await rpc('carregarUnidade',{unidade:code,codigo_acesso:token});
+    const roster=await rpc('carregarUnidade',{unidade:code});
     if(!roster||String(roster.c)!==code)throw new Error('Não foi possível carregar a unidade selecionada.');
-    units.set(code,roster);state.code=code;state.name=name;state.email=email;state.token=token;state.submissionId=newId();state.furthest=1;
+    units.set(code,roster);state.code=code;state.name=name;state.email=email;state.submissionId=newId();state.furthest=1;
     renderNonparticipation();renderSupport();page(1);
   }catch(err){error(err.message||'Falha ao carregar os estudantes. Tente novamente.');}
   finally{setBusy(false);}
@@ -171,7 +210,7 @@ el('sx-finish').addEventListener('click',async()=>{
   if(!state.name||!state.email||!el('sx-email').checkValidity()){page(0);error('Preencha nome e e-mail do responsável antes de concluir.');return;}
   if(!validateAnswers()){page(1);error('Preencha todas as justificativas obrigatórias para concluir.');return;}
   clearError();setBusy(true);
-  const payload={id_envio:state.submissionId,unidade:state.code,codigo_acesso:state.token,nome:state.name,email:state.email,justificativas:requiredRows().map(({r,i})=>({id_indicacao:r[5],justificativa:state.answers.get(answerKey(r,i))||''}))};
+  const payload={id_envio:state.submissionId,unidade:state.code,nome:state.name,email:state.email,justificativas:requiredRows().map(({r,i})=>({id_indicacao:r[5],justificativa:state.answers.get(answerKey(r,i))||''}))};
   try{
     const result=await rpc('salvarConferencia',payload);
     if(!result||!result.ok)throw new Error('O servidor não confirmou o registro. Tente novamente.');
@@ -180,7 +219,7 @@ el('sx-finish').addEventListener('click',async()=>{
   }catch(err){error((err.message||'Não foi possível confirmar o envio.')+' As informações continuam nesta página. Confira a conexão e tente novamente.');}
   finally{setBusy(false);}
 });
-el('sx-reopen').addEventListener('click',()=>{state.answers.clear();state.token='';state.code='';state.name='';state.email='';state.submissionId=null;state.furthest=0;units.clear();el('sx-name').value='';el('sx-email').value='';el('sx-access').value='';schoolSelect.value='';page(0);});
+el('sx-reopen').addEventListener('click',()=>{state.answers.clear();state.code='';state.name='';state.email='';state.submissionId=null;state.furthest=0;units.clear();el('sx-name').value='';el('sx-email').value='';schoolSelect.value='';page(0);});
 async function init(){page(0);try{
   const schools=await rpc('listarEscolas');
   if(!Array.isArray(schools)||!schools.length)throw new Error('Não há unidades cadastradas. Confira a configuração da planilha.');
